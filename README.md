@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 bash
 cat > README.md << 'EOF'
 # ☁️ Cloud Kernel Anomaly Detection using Dong Ting LSTM
@@ -165,3 +166,7 @@ numpy==1.24.3
 psutil==5.9.5
 python-socketio==5.9.0
 EOF
+=======
+# cloud-kernel-anomaly-detection
+Cloud-enabled kernel-level anomaly detection with deep learning using eBPF and Dong Ting dataset
+>>>>>>> 4de167b6d1eb225bcf57c58a1079dd1ed639b3a2
