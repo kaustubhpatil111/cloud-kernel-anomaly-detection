@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dong Ting LSTM Syscall Anomaly Detector</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f5;
+            padding: 20px;
+        }
+
+        .dashboard {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 28px;
+            color: #1e293b;
+            margin-bottom: 20px;
+            border-left: 6px solid #3b82f6;
+            padding-left: 15px;
+        }
+
+        .status-bar {
+            background: white;
+            border-radius: 12px;
+            padding: 15px 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 30px;
+            align-items: center;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-label {
+            font-weight: 600;
+            color: #64748b;
+        }
+
+        .status-value {
+            background: #e2e8f0;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-weight: 500;
+        }
+
+        .status-badge {
+            padding: 6px 16px;
+            border-radius: 30px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .badge-connected {
+            background: #22c55e;
+            color: white;
+        }
+
+        .badge-disconnected {
+            background: #ef4444;
+            color: white;
+        }
+
+        .badge-warning {
+            background: #f97316;
+            color: white;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+
+        .metric-card {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            transition: transform 0.2s;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-4px);
+        }
+
+        .metric-title {
+            font-size: 14px;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .metric-number {
+            font-size: 42px;
+            font-weight: 700;
+            margin-top: 8px;
+            line-height: 1.2;
+        }
+
+        .metric-number.normal {
+            color: #22c55e;
+        }
+
+        .metric-number.warning {
+            color: #f97316;
+        }
+
+        .metric-number.critical {
+            color: #ef4444;
+        }
+
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .syscall-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 5px;
+            background: #f8fafc;
+            border-radius: 12px;
+        }
+
+        .syscall-chip {
+            background: #3b82f6;
+            color: white;
+            padding: 6px 14px;
+            border-radius: 30px;
+            font-size: 13px;
+            font-weight: 500;
+            box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+        }
+
+        .loss-number {
+            font-size: 56px;
+            font-weight: 700;
+            text-align: center;
+            margin: 15px 0;
+            transition: color 0.3s;
+        }
+
+        .threshold-note {
+            text-align: center;
+            color: #64748b;
+            font-size: 14px;
+        }
+
+        .chart-container {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            margin-bottom: 25px;
+        }
+
+        canvas {
+            width: 100% !important;
+            height: auto !important;
+            max-height: 300px;
+        }
+
+        .footer {
+            text-align: center;
+            color: #94a3b8;
+            font-size: 14px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="dashboard">
+        <h1>🧠 Dong Ting LSTM · Real‑time Syscall Anomaly Detection</h1>
+
+        <!-- Status bar -->
+        <div class="status-bar">
+            <div class="status-item">
+                <span class="status-label">Status:</span>
+                <span id="connection-status" class="status-badge badge-connected">Connected</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">PID:</span>
+                <span class="status-value" id="target-pid">{{ pid }}</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Queue size:</span>
+                <span class="status-value" id="queue-size">0</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Last update:</span>
+                <span class="status-value" id="last-update">-</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Mode:</span>
+                <span class="status-value" id="mode">Live strace</span>
+            </div>
+        </div>
+
+        <!-- Metrics cards -->
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-title">Current Loss</div>
+                <div class="metric-number" id="metric-current">0.000</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Average Loss</div>
+                <div class="metric-number" id="metric-average">0.000</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Max Loss</div>
+                <div class="metric-number" id="metric-max">0.000</div>
+            </div>
+        </div>
+
+        <!-- Two columns: syscalls + current anomaly -->
+        <div class="two-column">
+            <!-- Recent syscalls -->
+            <div class="card">
+                <div class="card-title">📋 Recent Syscalls (last 20)</div>
+                <div id="syscalls-container" class="syscall-container">
+                    <span style="color:#94a3b8;">Waiting for syscalls...</span>
+                </div>
+                <div style="margin-top:12px; font-size:13px; color:#64748b;" id="syscall-stats"></div>
+            </div>
+
+            <!-- Current anomaly score -->
+            <div class="card" style="display: flex; flex-direction: column; justify-content: center;">
+                <div class="card-title">⚠️ Current Anomaly Score</div>
+                <div class="loss-number" id="current-loss">0.000000</div>
+                <div class="threshold-note">Threshold: > 1.0 indicates anomaly</div>
+            </div>
+        </div>
+
+        <!-- Chart -->
+        <div class="chart-container">
+            <canvas id="lossChart"></canvas>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            Model: LSTM (Dong Ting) · Update interval: 2s · Data source: strace
+        </div>
+    </div>
+
+    <script>
+        // ---------- Socket.IO setup (simplified) ----------
+        var socket = io();  // connects to the same origin automatically
+
+        // DOM elements
+        const connectionEl = document.getElementById('connection-status');
+        const queueSizeEl = document.getElementById('queue-size');
+        const lastUpdateEl = document.getElementById('last-update');
+        const modeEl = document.getElementById('mode');
+        const metricCurrent = document.getElementById('metric-current');
+        const metricAvg = document.getElementById('metric-average');
+        const metricMax = document.getElementById('metric-max');
+        const currentLossEl = document.getElementById('current-loss');
+        const syscallsContainer = document.getElementById('syscalls-container');
+        const syscallStats = document.getElementById('syscall-stats');
+
+        // Chart setup
+        const ctx = document.getElementById('lossChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Anomaly Score (Loss)',
+                    data: [],
+                    borderColor: '#ef4444',
+                    backgroundColor: 'rgba(239,68,68,0.1)',
+                    borderWidth: 2,
+                    pointRadius: 2,
+                    pointHoverRadius: 5,
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 300 },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: '#e2e8f0' } },
+                    x: { grid: { display: false } }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: (ctx) => `Loss: ${ctx.parsed.y.toFixed(6)}` } }
+                }
+            }
+        });
+
+        // Connection events with console logging
+        socket.on('connect', () => {
+            console.log('Socket connected');
+            connectionEl.textContent = 'Connected';
+            connectionEl.className = 'status-badge badge-connected';
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Socket disconnected');
+            connectionEl.textContent = 'Disconnected';
+            connectionEl.className = 'status-badge badge-disconnected';
+        });
+
+        socket.on('connect_error', (err) => {
+            console.error('Connection error:', err);
+            connectionEl.textContent = 'Error';
+            connectionEl.className = 'status-badge badge-warning';
+        });
+
+        // Main update event
+        socket.on('update', (data) => {
+            console.log('Update received:', data);
+
+            // Timestamp
+            lastUpdateEl.textContent = new Date().toLocaleTimeString();
+
+            // Queue size
+            queueSizeEl.textContent = data.queue_size || 0;
+
+            // Mode (if dummy mode were present, but we don't use it)
+            if (data.dummy_mode) modeEl.textContent = 'Dummy (fallback)';
+            else modeEl.textContent = 'Live strace';
+
+            // Update syscall chips
+            if (data.syscall_names && data.syscall_names.length > 0) {
+                let html = '';
+                data.syscall_names.forEach(name => {
+                    html += `<span class="syscall-chip">${name}</span>`;
+                });
+                syscallsContainer.innerHTML = html;
+
+                // Stats - fix: use syscall_names for unique count because data.syscalls might be numbers
+                const unique = new Set(data.syscall_names).size;
+                syscallStats.textContent = `Unique syscalls: ${unique} · Total shown: ${data.syscall_names.length}`;
+            } else {
+                syscallsContainer.innerHTML = '<span style="color:#94a3b8;">Waiting for syscalls...</span>';
+                syscallStats.textContent = '';
+            }
+
+            // Loss value
+            if (data.loss !== undefined) {
+                const loss = data.loss;
+                currentLossEl.textContent = loss.toFixed(6);
+                metricCurrent.textContent = loss.toFixed(3);
+
+                // Color code
+                if (loss > 1.0) {
+                    currentLossEl.style.color = '#ef4444';
+                    metricCurrent.className = 'metric-number critical';
+                } else if (loss > 0.5) {
+                    currentLossEl.style.color = '#f97316';
+                    metricCurrent.className = 'metric-number warning';
+                } else {
+                    currentLossEl.style.color = '#22c55e';
+                    metricCurrent.className = 'metric-number normal';
+                }
+
+                // Metrics average & max
+                if (data.history && data.history.length > 0) {
+                    const avg = data.history.reduce((a, b) => a + b, 0) / data.history.length;
+                    const max = Math.max(...data.history);
+                    metricAvg.textContent = avg.toFixed(3);
+                    metricMax.textContent = max.toFixed(3);
+                }
+
+                // Update chart
+                if (data.history) {
+                    chart.data.labels = data.history.map((_, i) => i);
+                    chart.data.datasets[0].data = data.history;
+                    chart.update();
+                }
+            }
+        });
+
+        // Fallback: fetch status manually to at least see queue size
+        setInterval(() => {
+            fetch('/status')
+                .then(r => r.json())
+                .then(d => {
+                    console.log('Status fetch:', d);
+                    // Update queue size from REST endpoint (in case WebSocket fails)
+                    queueSizeEl.textContent = d.queue_size || 0;
+                })
+                .catch(console.error);
+        }, 5000);
+    </script>
+</body>
+
+</html>

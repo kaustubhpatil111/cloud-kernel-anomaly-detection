@@ -1,0 +1,52 @@
+cat > .gitignore << 'EOF'
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+tf2_env/
+*.egg-info/
+dist/
+build/
+
+# TensorFlow
+*.ckpt-*
+*.meta
+*.index
+*.data-*
+!models/lstm/DT-abnormal-lstm/model_0_00.ckpt/variables/variables.data-*
+!models/lstm/DT-abnormal-lstm/model_0_00.ckpt/variables/variables.index
+
+# Data files
+*.npz
+!data/syscall_64.tbl
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+ids_src/
+templates/css/
+templates/js/
+inspect_data.py
+test_program.py
+EOF
