@@ -68,20 +68,56 @@ def load_syscall_map(tbl_path):
         logger.error(f"Failed to load syscall map: {e}")
         sys.exit(1)
 
-# ---------- Load LSTM model ----------
+# --- Replace your load_model function (Lines 72-104) with this version ---
+
 def load_model(model_path):
-    """Load Dong Ting's LSTM model."""
-    logger.info(f"Loading LSTM model from {model_path}")
-    
+    import tensorflow as tf
+    import numpy as np
+
+    class LegacyV1GraphWrapper:
+        """
+        Bypasses the broken Keras 3 object-tree tracking by extracting 
+        the raw mathematical graph & weights directly using the V1 engine.
+        """
+        def __init__(self, path):
+            # Create an isolated static graph context
+            self.graph = tf.Graph()
+            self.sess = tf.compat.v1.Session(graph=self.graph)
+            
+            with self.graph.as_default():
+                logger.info("Extracting raw inference graph (ignoring training/optimizer states)...")
+                meta_graph_def = tf.compat.v1.saved_model.loader.load(
+                    self.sess,
+                    [tf.compat.v1.saved_model.tag_constants.SERVING],
+                    path
+                )
+                
+                # Dynamically look up the serving signature 
+                sig_key = 'serving_default'
+                if sig_key not in meta_graph_def.signature_def:
+                    sig_key = list(meta_graph_def.signature_def.keys())[0]
+                    
+                signature_def = meta_graph_def.signature_def[sig_key]
+                
+                # Discover structural tensor target names
+                input_key = list(signature_def.inputs.keys())[0]
+                output_key = list(signature_def.outputs.keys())[0]
+                
+                self.input_tensor = self.graph.get_tensor_by_name(signature_def.inputs[input_key].name)
+                self.output_tensor = self.graph.get_tensor_by_name(signature_def.outputs[output_key].name)
+                logger.info(f"Successfully mapped layers: {input_key} -> {output_key}")
+
+        def predict(self, inputs, *args, **kwargs):
+            # Feed data through the isolated static session execution path
+            with self.graph.as_default():
+                return self.sess.run(self.output_tensor, feed_dict={self.input_tensor: inputs})
+
     try:
-        model = tf.keras.models.load_model(model_path, compile=False)
-        logger.info("Model loaded successfully")
-        logger.info(f"Model input shape: {model.input_shape}")
-        logger.info(f"Model output shape: {model.output_shape}")
-        return model
+        return LegacyV1GraphWrapper(model_path)
     except Exception as e:
-        logger.error(f"Failed to load model: {e}")
-        sys.exit(1)
+        logger.error(f"Failed loading through legacy isolation layer: {e}")
+        raise e
+    
 
 # ---------- Strace reader with proper syscall capture ----------
 def strace_reader(pid):
@@ -100,7 +136,7 @@ def strace_reader(pid):
     
     # Try with sudo first, then without
     cmds = [
-        ['sudo', 'strace', '-p', str(pid), '-f', '-e', 'trace=all', '-o', '/dev/stdout', '-s', '9999', '-v', '-tt'],
+
         ['strace', '-p', str(pid), '-f', '-e', 'trace=all', '-o', '/dev/stdout', '-s', '9999', '-v', '-tt']
     ]
     
@@ -205,17 +241,16 @@ def scorer():
             
             if queue_size < 10:
                 logger.info(f"Collecting syscalls: {queue_size}/10")
-                # Log before emit
-                logger.info(f"Emitting update (collecting): queue={queue_size}")
+                # Use the last known score to keep the graph flat, or 0 if it's the very beginning
+                last_known_loss = anomaly_scores[-1] if anomaly_scores else 0.0 
                 socketio.emit('update', {
                     'syscalls': last_20,
                     'syscall_names': last_names,
-                    'loss': 0.0,
+                    'loss': last_known_loss, 
                     'history': anomaly_scores,
                     'queue_size': queue_size,
                     'status': f'Collecting data... ({queue_size}/10)'
                 })
-                continue
             
             # Get window for model
             if queue_size >= WINDOW_SIZE:

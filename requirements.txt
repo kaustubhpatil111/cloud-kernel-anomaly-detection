@@ -1,0 +1,7 @@
+pandas
+numpy
+tensorflow
+flask
+flask-socketio
+flask-cors
+psutil
